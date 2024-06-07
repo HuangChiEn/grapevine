@@ -1,4 +1,3 @@
-from easy_configer.Configer import cfgtyp
 
 # * torchlightning, 2.2.3 version
 # ? plz strictly chk torch competible version grid!
@@ -7,26 +6,10 @@ import lightning as L
 from lightning.pytorch import seed_everything
 from lightning.pytorch.loggers import WandbLogger
 
-# ? recommended way to install torch
-# ? src: https://pytorch.org/get-started/previous-versions/ 
-import torch.utils.data as tch_ds 
-
+# * our dependencies for trainer_callback, model, dataset
 from trainer_callbk import add_lr_monitor
-
-# ? this script is standalone, we Mock (simulate) all objects
-from unittest.mock import Mock
-Model = Mock(spec=L.LightningModule)
-DataModule = Mock(spec=L.LightningDataModule)
-DataLoader = Mock(spec=tch_ds.DataLoader)
-
-def build_model(cfger: cfgtyp.AttributeDict) -> L.LightningModule :
-    return Model(**cfger)
-
-def build_data_module(cfger: cfgtyp.AttributeDict) -> L.LightningDataModule :
-    return DataModule(**cfger)
-
-def build_data_loader(cfger: cfgtyp.AttributeDict) -> tch_ds.DataLoader :
-    return DataLoader(**cfger)
+from model import build_model, Model
+from dataset import build_data_loader, build_data_module
 
 def main(cfger):
     # * 0. seed setup
@@ -37,25 +20,33 @@ def main(cfger):
 
     # ? optional for building data_loader
     #tra_ld, val_ld, tst_ld = build_data_loader(cfger.data_params)
-    data_module = build_data_module(cfger.data_params)
+    data_module = build_data_module(cfger.dataset_params)
     
     # * 2. setup trainer utils
     # ? add callback via list (shallow copy allow None return)
     callbk_lst = []
     add_lr_monitor(callbk_lst, logging_interval='step')
 
-    # ? wandb logger plugin by lightning 
+    # ? wandb logger plugin by lightning, more info 
+    # ? plz ref:https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.loggers.wandb.html#wandb
     logger = WandbLogger(**cfger.logger['setup']) if cfger.logger['log_it'] else None 
-    logger.log_hyperparams( vars(cfger) )
-    # logger.watch(model, log="all")
+    logger and logger.log_hyperparams( vars(cfger) )
+    # logger.watch(model, log="all") # logging gradient, network, ..., etc.
 
     # * 3. setup tchl trainer
+    # ? more setup about pl.Trainer, 
+    # ? plz ref:https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.trainer.trainer.Trainer.html#trainer
     trainer = L.Trainer(**cfger.trainer, logger=logger, callbacks=callbk_lst)
     
     # * 4. simple subroutine dispatcher
     # ? dict-mapping based dispatcher is also fine ~
     if cfger.exe_stage == 'train':
-        trainer.fit(model=model, datamodule=data_module, ckpt_path=cfger.train_params.resume_path)
+        # trainer.fit(model, train_dataloaders=tra_ld, val_dataloaders=val_ld)
+        trainer.fit(
+            model=model, 
+            datamodule=data_module, 
+            ckpt_path=cfger.train_params.resume_path
+        )
 
     elif cfger.exe_stage == 'finetune':
         model = Model.load_from_checkpoint(
@@ -71,16 +62,17 @@ def main(cfger):
         )
         trainer.test(model=model, datamodule=data_module)
 
+    # * about checkpoint saving mechanism (it's fully automatic in torchlightning)
+    # ? plz ref:https://lightning.ai/docs/pytorch/stable/common/checkpointing_basic.html#saving-and-loading-checkpoints-basic
+
 
 # * prepare config & entry point main
 if __name__ == "__main__":
-    import os
     from easy_configer.Configer import Configer
-    cfg_path = os.environ['CONFIGER_PATH'] if os.environ['CONFIGER_PATH'] \
-                                           else './sample_config.ini'
     
-    # ? allow CLI to feed args 
+    # ? allow CLI to runtime decide config path, append `cfg_path=/my/cfgs/sample_config.ini@str`
     cfger = Configer(cmd_args=True)
-
+    cfg_path = cfger.cfg_path if 'cfg_path' in cfger else './sample_config.ini'
+    
     cfger.cfg_from_ini(cfg_path)
     main(cfger)
