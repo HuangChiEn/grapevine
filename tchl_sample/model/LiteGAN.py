@@ -86,15 +86,14 @@ class GAN(LightningModule):
     def training_step(self, batch, batch_idx):
         imgs, _ = batch
 
-        opt1, opt2 = self.optimizers()
-        opt1.zero_grad()
-        opt2.zero_grad()
-
+        optg, optd = self.optimizers()
+        
         # sample noise
         z = torch.randn(imgs.shape[0], self.hparams.latent_dim)
         z = z.type_as(imgs)
 
         # train generator
+        optg.zero_grad()
         
         # generate images
         self.generated_imgs = self(z)
@@ -118,6 +117,7 @@ class GAN(LightningModule):
 
         # train discriminator
         # Measure discriminator's ability to classify real from generated samples
+        optd.zero_grad()
 
         # how well can it label as real?
         valid = torch.ones(imgs.size(0), 1)
